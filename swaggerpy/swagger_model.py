@@ -6,11 +6,10 @@
 """
 
 import json
-import os
-import urllib
 import urlparse
 
-from swaggerpy.http_client import SynchronousHttpClient
+from tornado.gen import coroutine, Return
+from tornado.httpclient import AsyncHTTPClient
 from swaggerpy.processors import SwaggerProcessor, SwaggerError
 
 SWAGGER_VERSIONS = ["1.1", "1.2"]
@@ -28,7 +27,6 @@ SWAGGER_PRIMITIVES = [
 ]
 
 
-# noinspection PyDocstring
 class ValidationProcessor(SwaggerProcessor):
     """A processor that validates the Swagger model.
     """
@@ -102,26 +100,18 @@ class ValidationProcessor(SwaggerProcessor):
         validate_required_fields(prop, required_fields, context)
 
 
+@coroutine
 def json_load_url(http_client, url):
     """Download and parse JSON from a URL.
 
     :param http_client: HTTP client interface.
-    :type  http_client: http_client.HttpClient
+    :type  http_client: AsyncHTTPClient
     :param url: URL for JSON to parse
     :return: Parsed JSON dict
     """
-    scheme = urlparse.urlparse(url).scheme
-    if scheme == 'file':
-        # requests can't handle file: URLs
-        fp = urllib.urlopen(url)
-        try:
-            return json.load(fp)
-        finally:
-            fp.close()
-    else:
-        resp = http_client.request('GET', url)
-        resp.raise_for_status()
-        return resp.json()
+    resp = yield http_client.fetch(url)
+    resp.rethrow()
+    raise Return(json.loads(resp.body))
 
 
 class Loader(object):
@@ -141,6 +131,7 @@ class Loader(object):
         # noinspection PyTypeChecker
         self.processors = [ValidationProcessor()] + processors
 
+    @coroutine
     def load_resource_listing(self, resources_url, base_url=None):
         """Load a resource listing, loading referenced API declarations.
 
@@ -158,7 +149,7 @@ class Loader(object):
         """
 
         # Load the resource listing
-        resource_listing = json_load_url(self.http_client, resources_url)
+        resource_listing = yield json_load_url(self.http_client, resources_url)
 
         # Some extra data only known about at load time
         resource_listing['url'] = resources_url
@@ -167,12 +158,13 @@ class Loader(object):
 
         # Load the API declarations
         for api in resource_listing.get('apis'):
-            self.load_api_declaration(base_url, api)
+            yield self.load_api_declaration(base_url, api)
 
         # Now that the raw object model has been loaded, apply the processors
         self.process_resource_listing(resource_listing)
-        return resource_listing
+        raise Return(resource_listing)
 
+    @coroutine
     def load_api_declaration(self, base_url, api_dict):
         """Load an API declaration file.
 
@@ -185,7 +177,7 @@ class Loader(object):
         """
         path = api_dict.get('path').replace('{format}', 'json')
         api_dict['url'] = urlparse.urljoin(base_url + '/', path.strip('/'))
-        api_dict['api_declaration'] = json_load_url(
+        api_dict['api_declaration'] = yield json_load_url(
             self.http_client, api_dict['url'])
 
     def process_resource_listing(self, resources):
@@ -197,41 +189,23 @@ class Loader(object):
             processor.apply(resources)
 
 
-def validate_required_fields(json, required_fields, context):
+def validate_required_fields(json_obj, required_fields, context):
     """Checks a JSON object for a set of required fields.
 
     If any required field is missing, a SwaggerError is raised.
 
-    :param json: JSON object to check.
+    :param json_obj: JSON object to check.
     :param required_fields: List of required fields.
     :param context: Current context in the API.
     """
-    missing_fields = [f for f in required_fields if not f in json]
+    missing_fields = [f for f in required_fields if f not in json_obj]
 
     if missing_fields:
         raise SwaggerError(
             "Missing fields: %s" % ', '.join(missing_fields), context)
 
 
-def load_file(resource_listing_file, http_client=None, processors=None):
-    """Loads a resource listing file, applying the given processors.
-
-    :param http_client: HTTP client interface.
-    :param resource_listing_file: File name for a resource listing.
-    :param processors:  List of SwaggerProcessors to apply to the resulting
-                        resource.
-    :return: Processed object model from
-    :raise: IOError: On error reading api-docs.
-    """
-    file_path = os.path.abspath(resource_listing_file)
-    url = urlparse.urljoin('file:', urllib.pathname2url(file_path))
-    # When loading from files, everything is relative to the resource listing
-    dir_path = os.path.dirname(file_path)
-    base_url = urlparse.urljoin('file:', urllib.pathname2url(dir_path))
-    return load_url(url, http_client=http_client, processors=processors,
-                    base_url=base_url)
-
-
+@coroutine
 def load_url(resource_listing_url, http_client=None, processors=None,
              base_url=None):
     """Loads a resource listing, applying the given processors.
@@ -247,11 +221,12 @@ def load_url(resource_listing_url, http_client=None, processors=None,
     :raise: IOError, URLError: On error reading api-docs.
     """
     if http_client is None:
-        http_client = SynchronousHttpClient()
+        http_client = AsyncHTTPClient()
 
     loader = Loader(http_client=http_client, processors=processors)
-    return loader.load_resource_listing(
+    result = yield loader.load_resource_listing(
         resource_listing_url, base_url=base_url)
+    raise Return(result)
 
 
 def load_json(resource_listing, http_client=None, processors=None):
@@ -264,7 +239,7 @@ def load_json(resource_listing, http_client=None, processors=None):
     :return: Processed resource listing.
     """
     if http_client is None:
-        http_client = SynchronousHttpClient()
+        http_client = AsyncHTTPClient()
 
     loader = Loader(http_client=http_client, processors=processors)
     loader.process_resource_listing(resource_listing)

@@ -6,16 +6,18 @@
 """
 
 import json
-import logging
 import os.path
 import re
 import urllib
+import urlparse
 import swaggerpy
 
-from swaggerpy.http_client import SynchronousHttpClient
+from tornado.log import app_log as log
+from tornado.ioloop import IOLoop
+from tornado.gen import coroutine, Return
+from tornado.httpclient import AsyncHTTPClient
+from tornado.websocket import websocket_connect
 from swaggerpy.processors import WebsocketProcessor, SwaggerProcessor
-
-log = logging.getLogger(__name__)
 
 
 class ClientProcessor(SwaggerProcessor):
@@ -39,6 +41,14 @@ class Operation(object):
     """
 
     def __init__(self, uri, operation, http_client):
+        """
+
+        :param uri:
+        :param operation:
+        :param http_client: HTTP client
+        :type http_client: AsyncHTTPClient
+        :return:
+        """
         self.uri = uri
         self.json = operation
         self.http_client = http_client
@@ -46,6 +56,7 @@ class Operation(object):
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.json['nickname'])
 
+    @coroutine
     def __call__(self, **kwargs):
         """Invoke ARI operation.
 
@@ -107,10 +118,17 @@ class Operation(object):
             if data:
                 raise NotImplementedError(
                     "Sending body data with websockets not implmented")
-            return self.http_client.ws_connect(uri, params=params)
+            ws = yield websocket_connect(
+                    urlparse.urljoin(uri, urllib.urlencode(params)))
+            raise Return(ws)
         else:
-            return self.http_client.request(
-                method, uri, params=params, data=data, headers=headers)
+            result = yield self.http_client.fetch(
+                urlparse.urljoin(uri, urllib.urlencode(params)),
+                method=method,
+                body=data,
+                headers=headers
+            )
+            raise Return(result)
 
 
 class Resource(object):
@@ -180,31 +198,64 @@ class Resource(object):
 class SwaggerClient(object):
     """Client object for accessing a Swagger-documented RESTful service.
 
-    :param url_or_resource: Either the parsed resource listing+API decls, or
-                            its URL.
-    :type url_or_resource: dict or str
     :param http_client: HTTP client API
     :type  http_client: HttpClient
     """
+    _api_docs = None
+    _resources = None
 
-    def __init__(self, url_or_resource, http_client=None):
+    @property
+    def api_docs(self):
+        if self._api_docs is None:
+            raise RuntimeError('Not loaded')
+        return self._api_docs
+
+    @api_docs.setter
+    def api_docs(self, value):
+        self._api_docs = value
+
+    @property
+    def resources(self):
+        if self._resources is None:
+            raise RuntimeError('Not loaded')
+        return self._resources
+
+    @resources.setter
+    def resources(self, value):
+        self._resources = value
+
+    def __init__(self, url_or_resource, io_loop=None, http_client=None,
+                 **kwargs):
+        if io_loop is None:
+            io_loop = IOLoop.current()
+        self.io_loop = io_loop
         if not http_client:
-            http_client = SynchronousHttpClient()
+            http_client = AsyncHTTPClient(defaults=kwargs)
         self.http_client = http_client
+        future = self.load(url_or_resource)
+        if future is not None:
+            io_loop.add_future(future, lambda f: f.result())
 
+    @coroutine
+    def load(self, url_or_resource):
+        """
+        :param url_or_resource: Either the parsed resource listing+API decls,
+                                or its URL.
+        :type url_or_resource: dict or str
+        """
         loader = swaggerpy.Loader(
-            http_client, [WebsocketProcessor(), ClientProcessor()])
+            self.http_client, [WebsocketProcessor(), ClientProcessor()])
 
         if isinstance(url_or_resource, str):
             log.debug("Loading from %s" % url_or_resource)
-            self.api_docs = loader.load_resource_listing(url_or_resource)
+            self.api_docs = yield loader.load_resource_listing(url_or_resource)
         else:
             log.debug("Loading from %s" % url_or_resource.get('basePath'))
             self.api_docs = url_or_resource
             loader.process_resource_listing(self.api_docs)
 
         self.resources = {
-            resource['name']: Resource(resource, http_client)
+            resource['name']: Resource(resource, self.http_client)
             for resource in self.api_docs['apis']}
 
     def __repr__(self):
