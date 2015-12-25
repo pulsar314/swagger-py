@@ -14,7 +14,7 @@ import swaggerpy
 from tornado.log import app_log as log
 from tornado.ioloop import IOLoop
 from tornado.gen import coroutine, Return
-from tornado.httpclient import AsyncHTTPClient
+from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 from tornado.websocket import websocket_connect
 from swaggerpy.processors import WebsocketProcessor, SwaggerProcessor
 
@@ -117,10 +117,12 @@ class Operation(object):
             if data:
                 raise NotImplementedError(
                     "Sending body data with websockets not implmented")
-            ws = yield websocket_connect(
-                '?'.join([uri, urllib.urlencode(params)]),
-                on_message_callback=ws_on_message
+            request = HTTPRequest(
+                    '?'.join([uri, urllib.urlencode(params)]),
+                    **self.http_client.defaults
             )
+            ws = yield websocket_connect(
+                request, on_message_callback=ws_on_message)
             raise Return(ws)
         else:
             result = yield self.http_client.fetch(
