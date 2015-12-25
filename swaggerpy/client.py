@@ -57,7 +57,7 @@ class Operation(object):
         return "%s(%s)" % (self.__class__.__name__, self.json['nickname'])
 
     @coroutine
-    def __call__(self, **kwargs):
+    def __call__(self, ws_on_message=None, **kwargs):
         """Invoke ARI operation.
 
         :param kwargs: ARI operation arguments.
@@ -119,7 +119,9 @@ class Operation(object):
                 raise NotImplementedError(
                     "Sending body data with websockets not implmented")
             ws = yield websocket_connect(
-                    urlparse.urljoin(uri, urllib.urlencode(params)))
+                urlparse.urljoin(uri, urllib.urlencode(params)),
+                on_message_callback=ws_on_message
+            )
             raise Return(ws)
         else:
             result = yield self.http_client.fetch(
@@ -225,7 +227,7 @@ class SwaggerClient(object):
         self._resources = value
 
     def __init__(self, url_or_resource, io_loop=None, http_client=None,
-                 **kwargs):
+                 on_load=None, **kwargs):
         if io_loop is None:
             io_loop = IOLoop.current()
         self.io_loop = io_loop
@@ -234,7 +236,13 @@ class SwaggerClient(object):
         self.http_client = http_client
         future = self.load(url_or_resource)
         if future is not None:
-            io_loop.add_future(future, lambda f: f.result())
+            def callback(f):
+                f.result()
+                if on_load is not None:
+                    on_load()
+            io_loop.add_future(future, callback)
+        elif on_load is not None:
+            on_load()
 
     @coroutine
     def load(self, url_or_resource):
