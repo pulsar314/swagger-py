@@ -239,6 +239,7 @@ class SwaggerClient(object):
             io_loop = IOLoop.current()
         self.io_loop = io_loop
         if not http_client:
+            kwargs.update(allow_nonstandard_methods=True)
             http_client = AsyncHTTPClient(defaults=kwargs)
         self.http_client = http_client
 
