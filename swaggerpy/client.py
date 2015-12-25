@@ -9,7 +9,6 @@ import json
 import os.path
 import re
 import urllib
-import urlparse
 import swaggerpy
 
 from tornado.log import app_log as log
@@ -119,13 +118,13 @@ class Operation(object):
                 raise NotImplementedError(
                     "Sending body data with websockets not implmented")
             ws = yield websocket_connect(
-                urlparse.urljoin(uri, urllib.urlencode(params)),
+                '?'.join([uri, urllib.urlencode(params)]),
                 on_message_callback=ws_on_message
             )
             raise Return(ws)
         else:
             result = yield self.http_client.fetch(
-                urlparse.urljoin(uri, urllib.urlencode(params)),
+                '?'.join([uri, urllib.urlencode(params)]),
                 method=method,
                 body=data,
                 headers=headers
