@@ -8,8 +8,7 @@
 import json
 import urlparse
 
-from tornado.gen import coroutine, Return
-from tornado.httpclient import AsyncHTTPClient
+from tornado.httpclient import HTTPClient
 from swaggerpy.processors import SwaggerProcessor, SwaggerError
 
 SWAGGER_VERSIONS = ["1.1", "1.2"]
@@ -100,25 +99,24 @@ class ValidationProcessor(SwaggerProcessor):
         validate_required_fields(prop, required_fields, context)
 
 
-@coroutine
 def json_load_url(http_client, url):
     """Download and parse JSON from a URL.
 
     :param http_client: HTTP client interface.
-    :type  http_client: AsyncHTTPClient
+    :type  http_client: tornado.httpclient.HTTPClient
     :param url: URL for JSON to parse
     :return: Parsed JSON dict
     """
-    resp = yield http_client.fetch(url)
+    resp = http_client.fetch(url)
     resp.rethrow()
-    raise Return(json.loads(resp.body))
+    return json.loads(resp.body)
 
 
 class Loader(object):
     """Abstraction for loading Swagger API's.
 
     :param http_client: HTTP client interface.
-    :type  http_client: http_client.HttpClient
+    :type  http_client: tornado.httpclient.HTTPClient
     :param processors: List of processors to apply to the API.
     :type  processors: list of SwaggerProcessor
     """
@@ -131,7 +129,6 @@ class Loader(object):
         # noinspection PyTypeChecker
         self.processors = [ValidationProcessor()] + processors
 
-    @coroutine
     def load_resource_listing(self, resources_url, base_url=None):
         """Load a resource listing, loading referenced API declarations.
 
@@ -149,7 +146,7 @@ class Loader(object):
         """
 
         # Load the resource listing
-        resource_listing = yield json_load_url(self.http_client, resources_url)
+        resource_listing = json_load_url(self.http_client, resources_url)
 
         # Some extra data only known about at load time
         resource_listing['url'] = resources_url
@@ -158,13 +155,12 @@ class Loader(object):
 
         # Load the API declarations
         for api in resource_listing.get('apis'):
-            yield self.load_api_declaration(base_url, api)
+            self.load_api_declaration(base_url, api)
 
         # Now that the raw object model has been loaded, apply the processors
         self.process_resource_listing(resource_listing)
-        raise Return(resource_listing)
+        return resource_listing
 
-    @coroutine
     def load_api_declaration(self, base_url, api_dict):
         """Load an API declaration file.
 
@@ -177,7 +173,7 @@ class Loader(object):
         """
         path = api_dict.get('path').replace('{format}', 'json')
         api_dict['url'] = urlparse.urljoin(base_url + '/', path.strip('/'))
-        api_dict['api_declaration'] = yield json_load_url(
+        api_dict['api_declaration'] = json_load_url(
             self.http_client, api_dict['url'])
 
     def process_resource_listing(self, resources):
@@ -205,7 +201,6 @@ def validate_required_fields(json_obj, required_fields, context):
             "Missing fields: %s" % ', '.join(missing_fields), context)
 
 
-@coroutine
 def load_url(resource_listing_url, http_client=None, processors=None,
              base_url=None):
     """Loads a resource listing, applying the given processors.
@@ -221,12 +216,12 @@ def load_url(resource_listing_url, http_client=None, processors=None,
     :raise: IOError, URLError: On error reading api-docs.
     """
     if http_client is None:
-        http_client = AsyncHTTPClient()
+        http_client = HTTPClient()
 
     loader = Loader(http_client=http_client, processors=processors)
-    result = yield loader.load_resource_listing(
+    result = loader.load_resource_listing(
         resource_listing_url, base_url=base_url)
-    raise Return(result)
+    return result
 
 
 def load_json(resource_listing, http_client=None, processors=None):
@@ -239,7 +234,7 @@ def load_json(resource_listing, http_client=None, processors=None):
     :return: Processed resource listing.
     """
     if http_client is None:
-        http_client = AsyncHTTPClient()
+        http_client = HTTPClient()
 
     loader = Loader(http_client=http_client, processors=processors)
     loader.process_resource_listing(resource_listing)
