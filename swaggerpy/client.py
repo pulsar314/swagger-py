@@ -57,7 +57,7 @@ class Operation(object):
                 self.__class__.__name__, self.json['nickname'])
 
     @coroutine
-    def __call__(self, ws_on_message=None, **kwargs):
+    def __call__(self, **kwargs):
         """Invoke ARI operation.
 
         :param kwargs: ARI operation arguments.
@@ -113,26 +113,19 @@ class Operation(object):
             headers = {'Content-type': 'application/json',
                        'Accept': 'application/json'}
 
+        url = '?'.join([uri, urllib.urlencode(params)])
         if self.json['is_websocket']:
             # Fix up http: URLs
             uri = re.sub('^http', 'ws', uri)
             if data:
                 raise NotImplementedError(
                         'Sending body data with websockets not implmented')
-            request = HTTPRequest(
-                    '?'.join([uri, urllib.urlencode(params)]),
-                    **self.http_client.defaults
-            )
-            ws = yield websocket_connect(
-                request, on_message_callback=ws_on_message)
+            request = HTTPRequest(url, **self.http_client.defaults)
+            ws = yield websocket_connect(request)
             raise Return(ws)
         else:
             result = yield self.http_client.fetch(
-                '?'.join([uri, urllib.urlencode(params)]),
-                method=method,
-                body=data,
-                headers=headers
-            )
+                url, method=method, body=data, headers=headers)
             raise Return(result)
 
 
@@ -233,14 +226,12 @@ class SwaggerClient(object):
     def resources(self, value):
         self._resources = value
 
-    def __init__(self, url_or_resource, io_loop=None, http_client=None,
-                 **kwargs):
+    def __init__(self, url_or_resource, io_loop=None, http_client=None):
         if io_loop is None:
             io_loop = IOLoop.current()
         self.io_loop = io_loop
-        if not http_client:
-            kwargs.update(allow_nonstandard_methods=True)
-            http_client = AsyncHTTPClient(defaults=kwargs)
+        if http_client is None:
+            http_client = AsyncHTTPClient()
         self.http_client = http_client
 
         loader = swaggerpy.Loader(
