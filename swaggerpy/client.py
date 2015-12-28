@@ -113,19 +113,19 @@ class Operation(object):
             headers = {'Content-type': 'application/json',
                        'Accept': 'application/json'}
 
-        url = '?'.join([uri, urllib.urlencode(params)])
+        uri = '?'.join([uri, urllib.urlencode(params)])
         if self.json['is_websocket']:
             # Fix up http: URLs
             uri = re.sub('^http', 'ws', uri)
             if data:
                 raise NotImplementedError(
                         'Sending body data with websockets not implmented')
-            request = HTTPRequest(url, **self.http_client.defaults)
+            request = HTTPRequest(uri, **self.http_client.defaults)
             ws = yield websocket_connect(request)
             raise Return(ws)
         else:
             result = yield self.http_client.fetch(
-                url, method=method, body=data, headers=headers)
+                uri, method=method, body=data, headers=headers)
             raise Return(result)
 
 
