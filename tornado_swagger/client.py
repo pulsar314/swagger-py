@@ -9,14 +9,14 @@ import json
 import os.path
 import re
 import urllib
-import swaggerpy
 
 from tornado.log import app_log as log
 from tornado.ioloop import IOLoop
 from tornado.gen import coroutine, Return
 from tornado.httpclient import AsyncHTTPClient, HTTPClient, HTTPRequest
 from tornado.websocket import websocket_connect
-from swaggerpy.processors import WebsocketProcessor, SwaggerProcessor
+from .processors import WebsocketProcessor, SwaggerProcessor
+from .swagger_model import Loader
 
 
 class ClientProcessor(SwaggerProcessor):
@@ -137,7 +137,7 @@ class Resource(object):
     """
 
     def __init__(self, resource, http_client):
-        log.debug(u'Building resource "{0}"'.format(resource['name']))
+        log.debug('Building resource "{0}"'.format(resource['name']))
         self.json = resource
         decl = resource['api_declaration']
         self.http_client = http_client
@@ -234,7 +234,7 @@ class SwaggerClient(object):
             http_client = AsyncHTTPClient()
         self.http_client = http_client
 
-        loader = swaggerpy.Loader(
+        loader = Loader(
                 http_client=HTTPClient(defaults=self.http_client.defaults),
                 processors=[WebsocketProcessor(), ClientProcessor()]
         )

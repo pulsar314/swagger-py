@@ -9,7 +9,7 @@ import json
 import urlparse
 
 from tornado.httpclient import HTTPClient
-from swaggerpy.processors import SwaggerProcessor, SwaggerError
+from .processors import SwaggerProcessor, SwaggerError
 
 SWAGGER_VERSIONS = ["1.1", "1.2"]
 

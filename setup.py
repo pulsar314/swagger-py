@@ -12,7 +12,7 @@ import os
 from setuptools import setup
 
 setup(
-    name="swaggerpy",
+    name="tornado-swagger",
     version="0.3.0",
     license="BSD 3-Clause License",
     description="Library for accessing Swagger-enabled API's",
@@ -20,8 +20,8 @@ setup(
                                        "README.rst")).read(),
     author="Alexander Efremov",
     author_email="pulsar314@gmail.com",
-    url="https://github.com/pulsar314/swagger-py",
-    packages=["swaggerpy"],
+    url="https://github.com/pulsar314/tornado-swagger",
+    packages=["tornado_swagger"],
     classifiers=[
         "Development Status :: 1 - Planning",
         "Intended Audience :: Developers",
